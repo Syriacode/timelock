@@ -152,6 +152,74 @@ contract TimelockTest is Test {
         timelock.execute(address(box), 0, data, SALT);
     }
 
+    function test_RevertWhen_DataDiffersFromQueued() public {
+        bytes32 queuedId = _queue();
+        bytes memory swapped = abi.encodeCall(Box.store, (9999));
+        bytes32 swappedId = timelock.getId(address(box), 0, swapped, SALT);
+
+        vm.warp(timelock.readyAt(queuedId));
+        vm.expectRevert(abi.encodeWithSelector(Timelock.NotQueued.selector, swappedId));
+        timelock.execute(address(box), 0, swapped, SALT);
+    }
+
+    function test_RevertWhen_ValueDiffersFromQueued() public {
+        bytes32 queuedId = _queue();
+        vm.deal(address(timelock), 1 ether);
+        bytes32 changedId = timelock.getId(address(box), 1 ether, data, SALT);
+
+        vm.warp(timelock.readyAt(queuedId));
+        vm.expectRevert(abi.encodeWithSelector(Timelock.NotQueued.selector, changedId));
+        timelock.execute(address(box), 1 ether, data, SALT);
+    }
+
+    function test_RevertWhen_TargetDiffersFromQueued() public {
+        bytes32 queuedId = _queue();
+        Box otherBox = new Box();
+        bytes32 changedId = timelock.getId(address(otherBox), 0, data, SALT);
+
+        vm.warp(timelock.readyAt(queuedId));
+        vm.expectRevert(abi.encodeWithSelector(Timelock.NotQueued.selector, changedId));
+        timelock.execute(address(otherBox), 0, data, SALT);
+    }
+
+    function test_RevertWhen_SaltDiffersFromQueued() public {
+        bytes32 queuedId = _queue();
+        bytes32 otherSalt = bytes32(uint256(2));
+        bytes32 changedId = timelock.getId(address(box), 0, data, otherSalt);
+
+        vm.warp(timelock.readyAt(queuedId));
+        vm.expectRevert(abi.encodeWithSelector(Timelock.NotQueued.selector, changedId));
+        timelock.execute(address(box), 0, data, otherSalt);
+    }
+
+    function test_RevertWhen_SelectorDiffersFromQueued() public {
+        bytes32 queuedId = _queue();
+        // Same length as the queued call, but it calls a different function.
+        bytes memory swapped = abi.encodePacked(Box.fail.selector, uint256(42));
+        bytes32 swappedId = timelock.getId(address(box), 0, swapped, SALT);
+
+        vm.warp(timelock.readyAt(queuedId));
+        vm.expectRevert(abi.encodeWithSelector(Timelock.NotQueued.selector, swappedId));
+        timelock.execute(address(box), 0, swapped, SALT);
+    }
+
+    function test_MismatchedExecuteLeavesQueuedActionIntact() public {
+        bytes32 queuedId = _queue();
+        uint256 readyTime = timelock.readyAt(queuedId);
+        bytes memory swapped = abi.encodeCall(Box.store, (9999));
+        bytes32 swappedId = timelock.getId(address(box), 0, swapped, SALT);
+
+        vm.warp(readyTime);
+        vm.expectRevert(abi.encodeWithSelector(Timelock.NotQueued.selector, swappedId));
+        timelock.execute(address(box), 0, swapped, SALT);
+
+        assertEq(box.number(), 0);
+        assertEq(timelock.readyAt(queuedId), readyTime);
+
+        timelock.execute(address(box), 0, data, SALT);
+        assertEq(box.number(), 42);
+    }
+
     function test_FailedCallStaysQueuedAndRetryable() public {
         bytes memory failData = abi.encodeCall(Box.fail, ());
 
@@ -240,6 +308,17 @@ contract TimelockTest is Test {
 
         assertEq(address(payee).balance + address(timelock).balance, 5 ether);
         assertGe(address(timelock).balance, 4 ether, "timelock drained");
+    }
+
+    function testFuzz_RevertWhen_StoredNumberDiffersFromQueued(uint256 n) public {
+        vm.assume(n != 42);
+        bytes32 queuedId = _queue();
+        bytes memory swapped = abi.encodeCall(Box.store, (n));
+        bytes32 swappedId = timelock.getId(address(box), 0, swapped, SALT);
+
+        vm.warp(timelock.readyAt(queuedId));
+        vm.expectRevert(abi.encodeWithSelector(Timelock.NotQueued.selector, swappedId));
+        timelock.execute(address(box), 0, swapped, SALT);
     }
 
     function testFuzz_NeverExecutesBeforeReadyTime(uint256 wait) public {
