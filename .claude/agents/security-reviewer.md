@@ -1,6 +1,6 @@
 ---
 name: security-reviewer
-description: Reviews Solidity contracts for security bugs. Use when asked for a security review or audit. Read-only: it reports findings and never changes code.
+description: "Reviews Solidity contracts for security bugs. Use when asked for a security review or audit. Read-only: it reports findings and never changes code."
 tools: Read, Grep, Glob
 ---
 
